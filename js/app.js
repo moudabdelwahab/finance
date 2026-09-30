@@ -84,7 +84,7 @@ const sim = () => head('تجربة سيناريو', `<a href="#more" class="mut"
 function runSim() {
   const v = i => $('#' + i).value.trim(), o = { salary: v('s1') ? toMinor(v('s1')) : null, extraDebt: toMinor(v('s2')), rentDelta: toMinor(v('s3')) };
   const a = summarize(st), b = summarize(st, o), r = (l, x, y) => `<div class="row"><span>${l}</span><span class="num">${fmt(x)} ← <b class="${y >= x ? 'pos' : 'neg'}">${fmt(y)}</b></span></div>`;
-  $('#simres').innerHTML = `<div class="card"><small>الآن ← بعد السيناريو</small>${r('المتاح فعليًا', a.available, b.available)}${r('حد الصرف اليومي', a.daily, b.daily)}${r('نهاية الشهر', a.eom, b.eom)}${b.warn ? `<div class="neg ch" style="justify-content:flex-start">${ic('al', 'sm')}سينفد الرصيد بتاريخ ${b.warn}</div>` : ''}</div>`;
+  $('#simres').innerHTML = `<div class="card"><small>الآن ← بعد السيناريو</small>${r('المتاح فعليًا', a.available, b.available)}${r('حد الصرف اليومي', a.daily, b.daily)}${r('نهاية الشهر', a.eom, b.eom)}${r('الرصيد بعد ٣٥ يومًا', a.series.at(-1).bal, b.series.at(-1).bal)}${b.warn ? `<div class="neg ch" style="justify-content:flex-start">${ic('al', 'sm')}سينفد الرصيد بتاريخ ${b.warn}</div>` : ''}</div>`;
 }
 const more = () => head('المزيد') + `<div class="cols two"><div>${`<form id="set" class="card"><div class="ch"><h2>مصروف المعيشة اليومي</h2>${chip('wal', 'blu')}</div><label>المبلغ اليومي المحجوز<div class="inp"><input name="living_daily" inputmode="decimal" value="${st.settings.living_daily / 100}" required><em>ج.م</em></div></label><button>حفظ</button></form>`}
   <a class="card lnk" href="#sim"><span class="l ch" style="justify-content:flex-start;gap:11px">${chip('flask', 'amb')}<b>تجربة سيناريو</b></span>${ic('chev')}</a>
