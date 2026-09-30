@@ -33,6 +33,7 @@ const addBtn = v => `<button class="s" data-do="add" data-v="${v}">${ic('plus', 
 const bar = (v, max, c = '') => `<div class="bar ${c}"><i style="width:${max ? Math.max(0, Math.min(100, Math.round(v / max * 100))) : 0}%"></i></div>`;
 const rel = ds => { const n = Math.round((parse(ds) - today()) / 864e5); return n <= 0 ? 'اليوم' : n == 1 ? 'غدًا' : n == 2 ? 'بعد يومين' : n <= 10 ? `بعد ${n} أيام` : `بعد ${n} يومًا`; };
 const nextEv = () => { const t = today(); return events(st, t, addDays(t, 62)); };
+const nextMonth = () => { const t = today(); return events(st, new Date(t.getFullYear(), t.getMonth() + 1, 1), new Date(t.getFullYear(), t.getMonth() + 2, 0)).filter(e => e.amt < 0); };
 
 const ENT = {
   accounts: { t: 'الحسابات', s: 'حساب', f: [['name', 'اسم الحساب', 'text'], ['opening', 'الرصيد الحالي', 'money']] },
@@ -62,10 +63,20 @@ const ask = (title, text, ok = 'حذف') => new Promise(res => {
 });
 
 function entSheet(e, r) {
+  if (e == 'accounts') return accSheet(r);
   const E = ENT[e], req = E.f.filter(f => !f[3]), opt = E.f.filter(f => f[3]);
   show(shHead(`${r ? 'تعديل' : 'إضافة'} ${E.s}`) + `<form data-a="ent" data-e="${e}" data-id="${r?.id || ''}">${req.map(f => field(f, r?.[f[0]])).join('')}${opt.length ? `<details ${r ? 'open' : ''}><summary>تفاصيل إضافية</summary>${opt.map(f => field(f, r?.[f[0]])).join('')}</details>` : ''}<button>${r ? 'حفظ التعديل' : 'إضافة'}</button>${r ? `<button type="button" class="g neg" data-do="del" data-v="${e}:${r.id}">حذف</button>` : ''}</form>`);
 }
 const accSel = (n, sel) => `<select name="${n}">${st.accounts.map(a => `<option value="${a.id}" ${a.id == sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>`;
+const accNet = id => st.transactions.reduce((n, t) => t.account_id == id ? n + (t.kind == 'income' ? t.amount : -t.amount) : n, 0);
+const accBal = a => a.opening + accNet(a.id);
+function accSheet(a) {
+  show(shHead(a ? 'تعديل الحساب' : 'إضافة حساب') + `<form data-a="acc" data-id="${a?.id || ''}">
+  <label>اسم الحساب<input name="name" required value="${esc(a?.name || '')}"></label>
+  <label>الرصيد الحالي<div class="inp"><input name="bal" required inputmode="decimal" value="${a ? accBal(a) / 100 : ''}"><em>ج.م</em></div></label>
+  ${a ? '<small>الرصيد يُحسب من معاملاتك. تعديله هنا يضبط الرصيد الافتتاحي تلقائيًا.</small>' : ''}
+  <button>${a ? 'حفظ التعديل' : 'إضافة'}</button>${a ? `<button type="button" class="g neg" data-do="del" data-v="accounts:${a.id}">حذف الحساب</button>` : ''}</form>`);
+}
 const TABS = [['exp', 'مصروف'], ['inc', 'دخل'], ['trf', 'تحويل'], ['pay', 'دفع دين']];
 function addSheet(tab = 'exp', pre = {}) {
   if (!st.accounts.length) return entSheet('accounts');
@@ -82,6 +93,10 @@ function addSheet(tab = 'exp', pre = {}) {
       : `<form data-a="pay"><label>الدين<select name="debt">${ds.map(d => `<option value="${d.id}" data-m="${Math.min(d.remaining, d.monthly) / 100}" ${d == d0 ? 'selected' : ''}>${esc(d.name)} · متبقي ${fmt(d.remaining)}</option>`).join('')}</select></label>${amt(pre.amount ?? Math.min(d0.remaining, d0.monthly) / 100)}${det(ac)}<button>تسجيل السداد</button></form>`; }
   show(`<div class="tabs">${TABS.map(([k, l]) => `<button type="button" class="${k == tab ? 'on' : ''}" data-do="tab" data-v="${k}">${l}</button>`).join('')}</div>` + body);
 }
+function txSheet(t) {
+  if (!t) return;
+  show(shHead(esc(t.category || 'معاملة')) + `<div><div class="amt2 num ${t.kind == 'income' ? 'pos' : 'neg'}">${t.kind == 'income' ? '+' : '-'}${fmt(t.amount)}</div><small>${t.tx_date}${t.note ? ' · ' + esc(t.note) : ''}</small></div><button class="g neg" data-do="del" data-v="transactions:${t.id}">حذف المعاملة</button>`);
+}
 function debtSheet(id) {
   const d = st.debts.find(x => x.id == id); if (!d) return; const p = d.total ? Math.round((1 - d.remaining / d.total) * 100) : 0;
   show(shHead(esc(d.name)) + `<div><small>المتبقي</small><div class="amt2 num">${fmt(d.remaining)}</div>${bar(p, 100, 'b')}<small>تم سداد ${p}% من ${fmt(d.total)}</small></div>
@@ -90,14 +105,14 @@ function debtSheet(id) {
 }
 
 /* ---------- pages ---------- */
-const txRow = t => `<div class="row"><div class="l">${chip(t.kind == 'income' ? 'up' : 'dn', t.kind == 'income' ? 'ok' : 'bad')}<div><b>${esc(t.category || 'معاملة')}</b><small>${t.tx_date}${t.note ? ' · ' + esc(t.note) : ''}</small></div></div><span class="${t.kind == 'income' ? 'pos' : 'neg'} num">${t.kind == 'income' ? '+' : '-'}${fmt(t.amount)}</span></div>`;
+const txRow = t => `<div class="row" data-do="open" data-v="transactions:${t.id}"><div class="l">${chip(t.kind == 'income' ? 'up' : 'dn', t.kind == 'income' ? 'ok' : 'bad')}<div><b>${esc(t.category || 'معاملة')}</b><small>${t.tx_date}${t.note ? ' · ' + esc(t.note) : ''}</small></div></div><span class="${t.kind == 'income' ? 'pos' : 'neg'} num">${t.kind == 'income' ? '+' : '-'}${fmt(t.amount)}</span></div>`;
 const monthCats = () => { const pre = ymd(today()).slice(0, 7), c = {};
   st.transactions.filter(x => x.kind == 'expense' && x.tx_date.startsWith(pre)).forEach(x => { const k = x.category || 'أخرى'; c[k] = (c[k] || 0) + x.amount; });
   return Object.entries(c).sort((a, b) => b[1] - a[1]); };
 
 const home = () => {
   if (!st.accounts.length) return head('أهلاً بك') + `<section class="card"><div class="ch"><h2>ابدأ بإضافة حسابك</h2>${chip('wal', 'blu')}</div><p class="mut" style="margin:0">أضف حسابك ورصيدك الحالي لنحسب لك المتاح فعليًا.</p><button data-do="add" data-v="ent:accounts">إضافة حساب</button></section>`;
-  const s = summarize(st), m = monthStats(st), bud = st.settings.living_daily * 30, nb = nextEv().filter(e => e.amt < 0).slice(0, 4), cats = monthCats().slice(0, 3);
+  const s = summarize(st), m = monthStats(st), bud = st.settings.living_daily * 30, nb = nextEv().filter(e => e.amt < 0).slice(0, 4), cats = monthCats().slice(0, 3), nm = nextMonth(), nmt = nm.reduce((a, e) => a - e.amt, 0);
   const all = st.debts.reduce((a, d) => a + d.total, 0), bad = s.warn || s.eom < 0;
   const status = s.warn ? `قد ينفد رصيدك ${rel(s.warn)}` : s.eom < 0 ? 'متوقع عجز نهاية الشهر' : `متوقع نهاية الشهر ${fmt(s.eom)}`;
   return `<div class="dash"><div class="m">
@@ -106,7 +121,8 @@ const home = () => {
   <div class="meta"><span class="pill">${ic('wal', 'sm')}رصيدك ${fmt(s.bal)}</span><span class="pill ${bad ? 'bad' : ''}">${ic(bad ? 'al' : 'check', 'sm')}${status}</span></div></section>
   <section class="sec"><div class="ch"><h2>الأيام القادمة</h2></div><div class="tl"><div class="ev now"><i></i><div><b>اليوم</b><br><small class="num">رصيدك ${fmt(s.bal)}</small></div></div>
   ${s.up.slice(0, 5).map(e => `<div class="ev ${e.amt < 0 ? 'out' : 'in'}"><i></i><b>${rel(e.date)} — ${esc(e.label)}</b><span class="${e.amt < 0 ? 'amb' : 'pos'} num">${e.amt < 0 ? '-' : '+'}${fmt(Math.abs(e.amt))}</span></div>`).join('')}</div></section>
-  <section class="sec"><div class="ch"><h2>أقرب التزاماتك</h2><a class="lk" href="#obl">الكل</a></div>${nb.map(e => `<div class="row"><div class="l">${chip(e.type == 'debt' ? 'card' : 'clock', 'amb')}<div><b>${esc(e.label)}</b><small>${rel(e.date)}</small></div></div><span class="num">${fmt(-e.amt)}</span></div>`).join('') || empty('cal', 'لا توجد التزامات قريبة.', '<button class="s" data-do="add" data-v="ent:obligations">إضافة التزام</button>')}</section></div>
+  <section class="sec"><div class="ch"><h2>أقرب التزاماتك</h2><a class="lk" href="#obl">الكل</a></div>${nb.map(e => `<div class="row"><div class="l">${chip(e.type == 'debt' ? 'card' : 'clock', 'amb')}<div><b>${esc(e.label)}</b><small>${rel(e.date)}</small></div></div><span class="num">${fmt(-e.amt)}</span></div>`).join('') || empty('cal', 'لا توجد التزامات قريبة.', '<button class="s" data-do="add" data-v="ent:obligations">إضافة التزام</button>')}</section>
+  <section class="sec"><div class="ch"><h2>الشهر القادم</h2><b class="num">${fmt(nmt)}</b></div>${nm.slice(0, 4).map(e => `<div class="row"><div class="l">${chip(e.type == 'debt' ? 'card' : 'clock', 'amb')}<div><b>${esc(e.label)}</b><small>${e.date}</small></div></div><span class="num">${fmt(-e.amt)}</span></div>`).join('') || empty('cal', 'لا توجد التزامات للشهر القادم.')}</section></div>
   <div class="sd"><section class="sec"><div class="ch"><h2>مصروفاتك هذا الشهر</h2><b class="num">${fmt(m.exp)}</b></div>
   ${bud ? `${bar(m.exp, bud, m.exp > bud * .9 ? 'r' : m.exp > bud * .7 ? 'a' : '')}<small>من ميزانية ${fmt(bud)}</small>` : '<a class="lk" href="#more">حدد مصروفك اليومي لتظهر الميزانية</a>'}
   ${cats.map(([c, v]) => `<div class="row"><span>${esc(c)}</span><span class="num">${fmt(v)}</span></div>`).join('')}</section>
@@ -130,7 +146,7 @@ const debtsP = () => { const ds = st.debts.filter(d => d.remaining > 0), rem = s
   <div class="stats2"><div class="stat"><small>المطلوب هذا الشهر</small><b class="num">${fmt(due)}</b></div><div class="stat"><small>أقرب قسط</small><b>${nx ? rel(nx.date) : '—'}</b>${nx ? `<small>${esc(nx.label)} · ${fmt(-nx.amt)}</small>` : ''}</div></div></div>
   <div class="m sec f">${st.debts.map(d => `<div class="row" data-do="open" data-v="debts:${d.id}"><div class="l">${chip('card', 'blu')}<div><b>${esc(d.name)}</b><small>قسط ${fmt(d.monthly)} · يوم ${d.due_day}</small>${bar(d.total - d.remaining, d.total, 'b')}</div></div><div style="display:flex;align-items:center;gap:8px"><span class="num">${fmt(d.remaining)}</span>${d.remaining > 0 ? `<button class="s" data-do="payopen" data-v="${d.id}">سداد</button>` : ''}</div></div>`).join('') || empty('card', 'لا توجد ديون مسجلة. اضغط "إضافة" لتسجيل أول دين.')}</div></div>`; };
 const more = () => head('المزيد') + `<div class="dash"><div class="m"><form id="set" class="sec f"><h2>مصروف المعيشة اليومي</h2><small>نحجزه من المتاح فعليًا كل يوم.</small><div class="inline"><div class="inp"><input name="living_daily" inputmode="decimal" value="${st.settings.living_daily / 100}" required aria-label="المبلغ اليومي"><em>ج.م</em></div><button>حفظ</button></div></form>
-  <div class="sec"><div class="ch"><h2>الحسابات</h2>${addBtn('ent:accounts')}</div>${st.accounts.map(a => `<div class="row" data-do="open" data-v="accounts:${a.id}"><div class="l">${chip('wal', 'blu')}<div><b>${esc(a.name)}</b><small>رصيد افتتاحي ${fmt(a.opening)}</small></div></div>${ic('chev', 'sm')}</div>`).join('')}</div></div>
+  <div class="sec"><div class="ch"><h2>الحسابات</h2>${addBtn('ent:accounts')}</div>${st.accounts.map(a => `<div class="row" data-do="open" data-v="accounts:${a.id}"><div class="l">${chip('wal', 'blu')}<div><b>${esc(a.name)}</b><small>الرصيد الحالي ${fmt(accBal(a))}</small></div></div>${ic('chev', 'sm')}</div>`).join('')}</div></div>
   <div class="sd"><div class="sec f"><a class="row" href="#sim"><span class="l">${chip('flask', 'amb')}<b>تجربة سيناريو</b></span>${ic('chev', 'sm')}</a><button class="g" data-do="theme">${ic('moon', 'sm')}الوضع الداكن / الفاتح</button><button class="g" data-do="logout">${ic('out', 'sm')}تسجيل الخروج</button></div></div></div>`;
 const sim = () => head('تجربة سيناريو', `<a href="#more" class="lk">${ic('chev')}</a>`) + `<div class="card" style="max-width:560px"><small>لا يغيّر بياناتك الحقيقية</small>${[['s1', 'الراتب الجديد', '17000'], ['s2', 'دفعة إضافية للدين شهريًا', '1000'], ['s3', 'زيادة الإيجار', '500']].map(([i, l, p]) => `<label>${l}<div class="inp"><input id="${i}" inputmode="decimal" placeholder="مثال: ${p}"><em>ج.م</em></div></label>`).join('')}</div><div id="simres" style="max-width:560px"></div>`;
 function runSim() {
@@ -162,13 +178,17 @@ document.addEventListener('submit', async ev => {
     if (f.id == 'auth') { const { error } = await db.sb.auth.signInWithPassword(d); if (error) return say('بيانات الدخول غير صحيحة'); return refresh(); }
     if (f.id == 'set') { await db.saveSettings(toMinor(d.living_daily)); await refresh(); return say('تم الحفظ'); }
     const a = f.dataset.a, amount = toMinor(d.amount);
-    if (a && a != 'ent' && amount <= 0) return say('أدخل مبلغًا صحيحًا');
+    if (a && a != 'ent' && a != 'acc' && amount <= 0) return say('أدخل مبلغًا صحيحًا');
     if (a == 'tx') { const row = { kind: f.dataset.k, amount, category: d.category, account_id: d.account_id || st.accounts[0].id }; if (d.note) row.note = d.note; if (d.tx_date) row.tx_date = d.tx_date;
       await db.insert('transactions', row); await done(f.dataset.k == 'income' ? 'تمت إضافة الدخل' : 'تمت إضافة المصروف'); }
     else if (a == 'trf') { if (d.from == d.to) return say('اختر حسابين مختلفين'); const n = id => st.accounts.find(x => x.id == id).name;
       await db.insert('transactions', { kind: 'expense', amount, account_id: d.from, category: 'تحويل', note: 'إلى ' + n(d.to) });
       await db.insert('transactions', { kind: 'income', amount, account_id: d.to, category: 'تحويل', note: 'من ' + n(d.from) }); await done('تم التحويل'); }
     else if (a == 'pay') { const debt = st.debts.find(x => x.id == d.debt); await db.payDebt(debt, Math.min(amount, debt.remaining), d.account_id || st.accounts[0].id); await done('تم تسجيل السداد'); }
+    else if (a == 'acc') { const bal = toMinor(d.bal), cur = st.accounts.find(x => x.id == f.dataset.id);
+      if (cur) { const { error } = await db.sb.from('accounts').update({ name: d.name, opening: bal - accNet(cur.id) }).eq('id', cur.id); if (error) throw error; }
+      else await db.insert('accounts', { name: d.name, opening: bal });
+      await done(cur ? 'تم حفظ التعديل' : 'تمت الإضافة'); }
     else if (a == 'ent') { const e = f.dataset.e, row = {};
       for (const [k, , ty, o] of ENT[e].f) { if (o && d[k] === '') continue; row[k] = ty == 'money' ? toMinor(d[k]) : ty == 'int' ? Number(d[k]) : d[k]; }
       if (e == 'debts' && row.remaining == null) row.remaining = row.total;
@@ -181,8 +201,8 @@ document.addEventListener('click', async ev => {
   try {
     switch (el.dataset.do) {
       case 'add': v.startsWith('ent:') ? entSheet(x == 'ent' ? id : x) : addSheet(v); break;
-      case 'tab': addSheet(v, { amount: $('#sh [name=amount]')?.value }); break;
-      case 'open': x == 'debts' ? debtSheet(id) : entSheet(x, st[x].find(r => r.id == id)); break;
+      case 'tab': addSheet(v, { amount: $('#sh [name=amount]')?.value || undefined }); break;
+      case 'open': x == 'debts' ? debtSheet(id) : x == 'transactions' ? txSheet(st.transactions.find(r => r.id == id)) : entSheet(x, st[x].find(r => r.id == id)); break;
       case 'edit': entSheet(x, st[x].find(r => r.id == id)); break;
       case 'payopen': addSheet('pay', { debt: v }); break;
       case 'del': if (!await ask('حذف هذا العنصر؟', x == 'accounts' ? 'سيُحذف الحساب مع كل معاملاته. لا يمكن التراجع.' : 'لا يمكن التراجع عن الحذف.')) return; await db.remove(x, id); await done('تم الحذف'); break;
